@@ -60,8 +60,6 @@ func NewM3u8Downloader(url string, filename string, n int) (*downloader, error) 
 }
 
 func (d *downloader) Download() error {
-	println(d.filename)
-
 	for {
 		select {
 		case link := <-d.linkChan:
