@@ -24,6 +24,11 @@ func ParseURL(m3u8 string) ([]string, map[string]string, error) {
 	if infos["URI"] == "" {
 		return links, infos, nil
 	}
+	if !strings.HasPrefix(infos["URI"], "http") {
+		parts := strings.Split(links[0], "/")
+		parts[len(parts)-1] = infos["URI"]
+		infos["URI"] = strings.Join(parts, "/")
+	}
 	rsp, err = http.Get(infos["URI"])
 	if err != nil {
 		return nil, nil, err
