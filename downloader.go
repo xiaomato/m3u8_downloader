@@ -125,5 +125,4 @@ func (d *downloader) downloadLink(link string) {
 
 func (d *downloader) saveFile(filename string, data []byte) error {
 	return ioutil.WriteFile(filename, data, 0777)
-
 }
