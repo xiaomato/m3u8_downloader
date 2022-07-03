@@ -1,5 +1,4 @@
-// package m3u8downloader
-package main
+package m3u8_downloader
 
 import (
 	"bufio"
