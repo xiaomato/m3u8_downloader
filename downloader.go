@@ -17,6 +17,7 @@ import (
 type downloader struct {
 	links     []string
 	linkFiles map[string]string
+	linkChan  chan string
 	infos     map[string]string
 	filename  string
 	n         int32
@@ -38,6 +39,14 @@ func NewM3u8Downloader(url string, filename string, n int) (*downloader, error) 
 	for i := 0; i < n; i++ {
 		avalable <- struct{}{}
 	}
+	linkChan := make(chan string, len(links))
+	for _, v := range links {
+		linkChan <- v
+	}
+	linkFiles := make(map[string]string)
+	for i, v := range links {
+		linkFiles[v] = fmt.Sprintf("%s/%v.ts", f, i)
+	}
 	return &downloader{
 		links:     links,
 		infos:     infos,
@@ -45,48 +54,20 @@ func NewM3u8Downloader(url string, filename string, n int) (*downloader, error) 
 		tmpDir:    f,
 		available: avalable,
 		n:         0,
-		linkFiles: map[string]string{},
 		done:      make(chan struct{}),
+		linkChan:  linkChan,
+		linkFiles: linkFiles,
 	}, nil
 }
 
 func (d *downloader) Download() error {
 	println(d.filename)
-	for i, v := range d.links {
-		d.linkFiles[v] = fmt.Sprintf("%s/%v.ts", d.tmpDir, i)
-	}
-	linkChan := make(chan string, len(d.links))
-	for _, v := range d.links {
-		linkChan <- v
-	}
+
 	for {
 		select {
-		case link := <-linkChan:
+		case link := <-d.linkChan:
 			<-d.available
-			go func(l string) {
-				data, err := d.downloadLink(l)
-				if err != nil {
-					println(err.Error())
-					linkChan <- l
-					return
-				}
-				data, err = cript.AES128Decrypt(data, []byte(d.infos["KEY"]), nil)
-				if err != nil {
-					println(err.Error())
-					linkChan <- l
-					return
-				}
-				if err := d.saveFile(d.linkFiles[l], data); err != nil {
-					println(err.Error())
-					linkChan <- l
-					return
-				}
-				d.available <- struct{}{}
-				atomic.AddInt32(&d.n, 1)
-				if int(d.n) == len(d.links) {
-					close(d.done)
-				}
-			}(link)
+			go d.downloadLink(link)
 		case <-d.done:
 			return d.merge()
 		}
@@ -113,19 +94,34 @@ func (d *downloader) merge() error {
 	return writer.Flush()
 }
 
-func (d *downloader) downloadLink(link string) ([]byte, error) {
+func (d *downloader) downloadLink(link string) {
 	c := http.Client{
 		Timeout: time.Minute,
 	}
 	rsp, err := c.Get(link)
 	if err != nil {
-		return nil, err
+		return
 	}
 	data, err := ioutil.ReadAll(rsp.Body)
 	if err != nil {
-		return nil, err
+		return
 	}
-	return data, nil
+	data, err = cript.AES128Decrypt(data, []byte(d.infos["KEY"]), nil)
+	if err != nil {
+		println(err.Error())
+		d.linkChan <- link
+		return
+	}
+	if err := d.saveFile(d.linkFiles[link], data); err != nil {
+		println(err.Error())
+		d.linkChan <- link
+		return
+	}
+	d.available <- struct{}{}
+	atomic.AddInt32(&d.n, 1)
+	if int(d.n) == len(d.links) {
+		close(d.done)
+	}
 }
 
 func (d *downloader) saveFile(filename string, data []byte) error {
